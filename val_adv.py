@@ -185,7 +185,7 @@ def process_batch(detections, labels, iouv):
     return torch.tensor(correct, dtype=torch.bool, device=iouv.device)
 
 
-@smart_inference_mode()
+# @smart_inference_mode()
 def run(
     data,
     weights=None,  # model.pt path(s)
@@ -293,26 +293,27 @@ def run(
 
     # Dataloader
     if not training:
-        if pt and not single_cls:  # check --weights are trained on --data
-            ncm = model.model.nc
-            assert ncm == nc, (
-                f"{weights} ({ncm} classes) trained on different --data than what you passed ({nc} "
-                f"classes). Pass correct combination of --weights and --data that are trained together."
-            )
-        model.warmup(imgsz=(1 if pt else batch_size, 3, imgsz, imgsz))  # warmup
-        pad, rect = (0.0, False) if task == "speed" else (0.5, pt)  # square inference for benchmarks
-        task = task if task in ("train", "val", "test") else "val"  # path to train/val/test images
-        dataloader = create_dataloader(
-            data[task],
-            imgsz,
-            batch_size,
-            stride,
-            single_cls,
-            pad=pad,
-            rect=rect,
-            workers=workers,
-            prefix=colorstr(f"{task}: "),
-        )[0]
+        with torch.no_grad():
+            if pt and not single_cls:  # check --weights are trained on --data
+                ncm = model.model.nc
+                assert ncm == nc, (
+                    f"{weights} ({ncm} classes) trained on different --data than what you passed ({nc} "
+                    f"classes). Pass correct combination of --weights and --data that are trained together."
+                )
+            model.warmup(imgsz=(1 if pt else batch_size, 3, imgsz, imgsz))  # warmup
+            pad, rect = (0.0, False) if task == "speed" else (0.5, pt)  # square inference for benchmarks
+            task = task if task in ("train", "val", "test") else "val"  # path to train/val/test images
+            dataloader = create_dataloader(
+                data[task],
+                imgsz,
+                batch_size,
+                stride,
+                single_cls,
+                pad=pad,
+                rect=rect,
+                workers=workers,
+                prefix=colorstr(f"{task}: "),
+            )[0]
 
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
@@ -329,71 +330,73 @@ def run(
     pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # progress bar
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
         callbacks.run("on_val_batch_start")
-        with dt[0]:
-            if cuda:
-                im = im.to(device, non_blocking=True)
-                targets = targets.to(device)
-            im = im.half() if half else im.float()  # uint8 to fp16/32
-            im /= 255  # 0 - 255 to 0.0 - 1.0
-            nb, _, height, width = im.shape  # batch size, channels, height, width
+        with torch.no_grad():
+            with dt[0]:
+                if cuda:
+                    im = im.to(device, non_blocking=True)
+                    targets = targets.to(device)
+                im = im.half() if half else im.float()  # uint8 to fp16/32
+                im /= 255  # 0 - 255 to 0.0 - 1.0
+                nb, _, height, width = im.shape  # batch size, channels, height, width
 
         # Attack on validation images
         im_adv = generate_adv_example(model, im.clone(), targets)
 
-        # Inference
-        with dt[1]:
-            preds, train_out = model(im_adv) if compute_loss else (model(im, augment=augment), None)
+        with torch.no_grad():
+            # Inference
+            with dt[1]:
+                preds, train_out = model(im_adv) if compute_loss else (model(im, augment=augment), None)
 
-        # Loss
-        if compute_loss:
-            loss += compute_loss(train_out, targets)[1]  # box, obj, cls
+            # Loss
+            if compute_loss:
+                loss += compute_loss(train_out, targets)[1]  # box, obj, cls
 
-        # NMS
-        targets[:, 2:] *= torch.tensor((width, height, width, height), device=device)  # to pixels
-        lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
-        with dt[2]:
-            preds = non_max_suppression(
-                preds, conf_thres, iou_thres, labels=lb, multi_label=True, agnostic=single_cls, max_det=max_det
-            )
+            # NMS
+            targets[:, 2:] *= torch.tensor((width, height, width, height), device=device)  # to pixels
+            lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
+            with dt[2]:
+                preds = non_max_suppression(
+                    preds, conf_thres, iou_thres, labels=lb, multi_label=True, agnostic=single_cls, max_det=max_det
+                )
 
-        # Metrics
-        for si, pred in enumerate(preds):
-            labels = targets[targets[:, 0] == si, 1:]
-            nl, npr = labels.shape[0], pred.shape[0]  # number of labels, predictions
-            path, shape = Path(paths[si]), shapes[si][0]
-            correct = torch.zeros(npr, niou, dtype=torch.bool, device=device)  # init
-            seen += 1
+            # Metrics
+            for si, pred in enumerate(preds):
+                labels = targets[targets[:, 0] == si, 1:]
+                nl, npr = labels.shape[0], pred.shape[0]  # number of labels, predictions
+                path, shape = Path(paths[si]), shapes[si][0]
+                correct = torch.zeros(npr, niou, dtype=torch.bool, device=device)  # init
+                seen += 1
 
-            if npr == 0:
+                if npr == 0:
+                    if nl:
+                        stats.append((correct, *torch.zeros((2, 0), device=device), labels[:, 0]))
+                        if plots:
+                            confusion_matrix.process_batch(detections=None, labels=labels[:, 0])
+                    continue
+
+                # Predictions
+                if single_cls:
+                    pred[:, 5] = 0
+                predn = pred.clone()
+                scale_boxes(im[si].shape[1:], predn[:, :4], shape, shapes[si][1])  # native-space pred
+
+                # Evaluate
                 if nl:
-                    stats.append((correct, *torch.zeros((2, 0), device=device), labels[:, 0]))
+                    tbox = xywh2xyxy(labels[:, 1:5])  # target boxes
+                    scale_boxes(im[si].shape[1:], tbox, shape, shapes[si][1])  # native-space labels
+                    labelsn = torch.cat((labels[:, 0:1], tbox), 1)  # native-space labels
+                    correct = process_batch(predn, labelsn, iouv)
                     if plots:
-                        confusion_matrix.process_batch(detections=None, labels=labels[:, 0])
-                continue
+                        confusion_matrix.process_batch(predn, labelsn)
+                stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))  # (correct, conf, pcls, tcls)
 
-            # Predictions
-            if single_cls:
-                pred[:, 5] = 0
-            predn = pred.clone()
-            scale_boxes(im[si].shape[1:], predn[:, :4], shape, shapes[si][1])  # native-space pred
-
-            # Evaluate
-            if nl:
-                tbox = xywh2xyxy(labels[:, 1:5])  # target boxes
-                scale_boxes(im[si].shape[1:], tbox, shape, shapes[si][1])  # native-space labels
-                labelsn = torch.cat((labels[:, 0:1], tbox), 1)  # native-space labels
-                correct = process_batch(predn, labelsn, iouv)
-                if plots:
-                    confusion_matrix.process_batch(predn, labelsn)
-            stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))  # (correct, conf, pcls, tcls)
-
-            # Save/log
-            if save_txt:
-                (save_dir / "labels").mkdir(parents=True, exist_ok=True)
-                save_one_txt(predn, save_conf, shape, file=save_dir / "labels" / f"{path.stem}.txt")
-            if save_json:
-                save_one_json(predn, jdict, path, class_map)  # append to COCO-JSON dictionary
-            callbacks.run("on_val_image_end", pred, predn, path, names, im[si])
+                # Save/log
+                if save_txt:
+                    (save_dir / "labels").mkdir(parents=True, exist_ok=True)
+                    save_one_txt(predn, save_conf, shape, file=save_dir / "labels" / f"{path.stem}.txt")
+                if save_json:
+                    save_one_json(predn, jdict, path, class_map)  # append to COCO-JSON dictionary
+                callbacks.run("on_val_image_end", pred, predn, path, names, im[si])
 
         # Plot images
         if plots and batch_i < 3:
