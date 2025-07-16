@@ -1,8 +1,8 @@
 import time
 import torch
 import torch.nn.functional as F
-from attacks.attacker import Attacker
-from utils.loss import compute_loss
+from utils.attacks.attacker import Attacker
+from utils.loss import ComputeLoss
 
 class PGD(Attacker):
     def __init__(self, model, config=None, target=None, epsilon=0.2, lr = 0.01, epoch = 10):
@@ -27,7 +27,8 @@ class PGD(Attacker):
                 self.model.zero_grad()
                 x_adv.requires_grad = True
                 logits = self.model(x_adv) #f(T((x))
-                loss, loss_components = compute_loss(logits, y, self.model)
+                compute_loss = ComputeLoss(self.model)
+                loss, loss_components = compute_loss(logits, y.to(device))
                 loss.backward()   
                                    
                 grad = x_adv.grad.detach()
