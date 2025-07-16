@@ -608,14 +608,16 @@ def generate_adv_example(model, im, targets, epsilon=0.05, epoch=5, lr=0.02):
     This function is defined outside the @smart_inference_mode decorator
     to ensure gradients can be computed.
     """
+    original_dtype = next(model.parameters()).dtype
     im_for_attack = im.float()  # Ensure image is float32 for attack
 
     with torch.enable_grad():
         # Store original requires_grad states
         original_requires_grad = {name: p.requires_grad for name, p in model.named_parameters()}
-        
-        # Set model to training mode and enable gradients for attack
+
+        # Set model to training mode, convert to float32, and enable gradients for attack
         model.train()
+        model.float()  # Convert model to float32 for attack stability
         for param in model.parameters():
             param.requires_grad = True
         im_for_attack.requires_grad = True
@@ -628,8 +630,13 @@ def generate_adv_example(model, im, targets, epsilon=0.05, epoch=5, lr=0.02):
         model.eval()
         for name, p in model.named_parameters():
             p.requires_grad = original_requires_grad.get(name, False)
-            
-    return im_adv.detach() # Detach the output from the computation graph
+
+        # Restore original model dtype
+        if original_dtype == torch.float16:
+            model.half()
+
+    # Detach and convert adversarial example to original image dtype for subsequent inference
+    return im_adv.detach().to(original_dtype)
 
 if __name__ == "__main__":
     opt = parse_opt()
