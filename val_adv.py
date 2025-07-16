@@ -608,6 +608,8 @@ def generate_adv_example(model, im, targets, epsilon=0.05, epoch=5, lr=0.02):
     This function is defined outside the @smart_inference_mode decorator
     to ensure gradients can be computed.
     """
+    im_for_attack = im.float()  # Ensure image is float32 for attack
+
     with torch.enable_grad():
         # Store original requires_grad states
         original_requires_grad = {name: p.requires_grad for name, p in model.named_parameters()}
@@ -616,18 +618,18 @@ def generate_adv_example(model, im, targets, epsilon=0.05, epoch=5, lr=0.02):
         model.train()
         for param in model.parameters():
             param.requires_grad = True
-        im.requires_grad = True
+        im_for_attack.requires_grad = True
 
         # Create and apply attack
         attacker = PGD(model=model, epsilon=epsilon, epoch=epoch, lr=lr)
-        im_adv = attacker.forward(im, targets)
+        im_adv = attacker.forward(im_for_attack, targets)
 
         # Restore model to evaluation mode and original requires_grad states
         model.eval()
         for name, p in model.named_parameters():
             p.requires_grad = original_requires_grad.get(name, False)
             
-    return im_adv
+    return im_adv.detach() # Detach the output from the computation graph
 
 if __name__ == "__main__":
     opt = parse_opt()
