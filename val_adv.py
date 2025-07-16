@@ -605,38 +605,30 @@ def main(opt):
 def generate_adv_example(model, im, targets, epsilon=0.05, epoch=5, lr=0.02):
     """
     Generates an adversarial example using PGD attack.
-    This function is defined outside the @smart_inference_mode decorator
-    to ensure gradients can be computed.
     """
-    original_dtype = next(model.parameters()).dtype
-    im_for_attack = im.float()  # Ensure image is float32 for attack
+    # Record original model dtype to restore it later
+        original_dtype = next(model.parameters()).dtype
+        
+        # Ensure input and model are float32 for attack stability
+        im_for_attack = im.float()
+        model.float()
 
-    with torch.enable_grad():
-        # Store original requires_grad states
-        original_requires_grad = {name: p.requires_grad for name, p in model.named_parameters()}
+        with torch.enable_grad():
+            model.train()  # Set model to train mode for gradient calculation
+            im_for_attack.requires_grad = True
 
-        # Set model to training mode, convert to float32, and enable gradients for attack
-        model.train()
-        model.float()  # Convert model to float32 for attack stability
-        for param in model.parameters():
-            param.requires_grad = True
-        im_for_attack.requires_grad = True
+            # Create and apply attack
+            attacker = PGD(model=model, epsilon=epsilon, epoch=epoch, lr=lr)
+            im_adv = attacker.forward(im_for_attack, targets)
 
-        # Create and apply attack
-        attacker = PGD(model=model, epsilon=epsilon, epoch=epoch, lr=lr)
-        im_adv = attacker.forward(im_for_attack, targets)
+            model.eval()  # Restore model to eval mode
 
-        # Restore model to evaluation mode and original requires_grad states
-        model.eval()
-        for name, p in model.named_parameters():
-            p.requires_grad = original_requires_grad.get(name, False)
-
-        # Restore original model dtype
+        # Restore original model dtype if necessary
         if original_dtype == torch.float16:
             model.half()
 
-    # Detach and convert adversarial example to original image dtype for subsequent inference
-    return im_adv.detach().to(original_dtype)
+        # Detach and convert adversarial example to original image dtype for subsequent inference
+        return im_adv.detach().to(original_dtype)
 
 if __name__ == "__main__":
     opt = parse_opt()
