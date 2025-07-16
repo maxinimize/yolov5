@@ -338,11 +338,12 @@ def run(
             nb, _, height, width = im.shape  # batch size, channels, height, width
 
         # Attack on validation images
-        model.train()
-        im.requires_grad = True
-        attacker = PGD(model=model, epsilon=0.05, epoch=5, lr=0.02)
-        im_adv = attacker.forward(im, targets)
-        model.eval()
+        with torch.enable_grad():
+            model.train()
+            im.requires_grad = True
+            attacker = PGD(model=model, epsilon=0.05, epoch=5, lr=0.02)
+            im_adv = attacker.forward(im, targets)
+            model.eval()
 
         # Inference
         with dt[1]:
