@@ -339,11 +339,17 @@ def run(
 
         # Attack on validation images
         with torch.enable_grad():
+            # Set model parameters to require gradients for attack
+            for param in model.parameters():
+                param.requires_grad = True
             model.train()
             im.requires_grad = True
             attacker = PGD(model=model, epsilon=0.05, epoch=5, lr=0.02)
             im_adv = attacker.forward(im, targets)
             model.eval()
+            # Restore model parameters to not require gradients
+            for param in model.parameters():
+                param.requires_grad = False
 
         # Inference
         with dt[1]:
