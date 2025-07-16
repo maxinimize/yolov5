@@ -338,18 +338,7 @@ def run(
             nb, _, height, width = im.shape  # batch size, channels, height, width
 
         # Attack on validation images
-        with torch.enable_grad():
-            # Set model parameters to require gradients for attack
-            for param in model.parameters():
-                param.requires_grad = True
-            model.train()
-            im.requires_grad = True
-            attacker = PGD(model=model, epsilon=0.05, epoch=5, lr=0.02)
-            im_adv = attacker.forward(im, targets)
-            model.eval()
-            # Restore model parameters to not require gradients
-            for param in model.parameters():
-                param.requires_grad = False
+        im_adv = generate_adv_example(model, im.clone(), targets)
 
         # Inference
         with dt[1]:
@@ -613,6 +602,32 @@ def main(opt):
         else:
             raise NotImplementedError(f'--task {opt.task} not in ("train", "val", "test", "speed", "study")')
 
+def generate_adv_example(model, im, targets, epsilon=0.05, epoch=5, lr=0.02):
+    """
+    Generates an adversarial example using PGD attack.
+    This function is defined outside the @smart_inference_mode decorator
+    to ensure gradients can be computed.
+    """
+    with torch.enable_grad():
+        # Store original requires_grad states
+        original_requires_grad = {name: p.requires_grad for name, p in model.named_parameters()}
+        
+        # Set model to training mode and enable gradients for attack
+        model.train()
+        for param in model.parameters():
+            param.requires_grad = True
+        im.requires_grad = True
+
+        # Create and apply attack
+        attacker = PGD(model=model, epsilon=epsilon, epoch=epoch, lr=lr)
+        im_adv = attacker.forward(im, targets)
+
+        # Restore model to evaluation mode and original requires_grad states
+        model.eval()
+        for name, p in model.named_parameters():
+            p.requires_grad = original_requires_grad.get(name, False)
+            
+    return im_adv
 
 if __name__ == "__main__":
     opt = parse_opt()
