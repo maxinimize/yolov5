@@ -607,28 +607,28 @@ def generate_adv_example(model, im, targets, epsilon=0.05, epoch=5, lr=0.02):
     Generates an adversarial example using PGD attack.
     """
     # Record original model dtype to restore it later
-        original_dtype = next(model.parameters()).dtype
-        
-        # Ensure input and model are float32 for attack stability
-        im_for_attack = im.float()
-        model.float()
+    original_dtype = next(model.parameters()).dtype
+    
+    # Ensure input and model are float32 for attack stability
+    im_for_attack = im.float()
+    model.float()
 
-        with torch.enable_grad():
-            model.train()  # Set model to train mode for gradient calculation
-            im_for_attack.requires_grad = True
+    with torch.enable_grad():
+        model.train()  # Set model to train mode for gradient calculation
+        im_for_attack.requires_grad = True
 
-            # Create and apply attack
-            attacker = PGD(model=model, epsilon=epsilon, epoch=epoch, lr=lr)
-            im_adv = attacker.forward(im_for_attack, targets)
+        # Create and apply attack
+        attacker = PGD(model=model, epsilon=epsilon, epoch=epoch, lr=lr)
+        im_adv = attacker.forward(im_for_attack, targets)
 
-            model.eval()  # Restore model to eval mode
+        model.eval()  # Restore model to eval mode
 
-        # Restore original model dtype if necessary
-        if original_dtype == torch.float16:
-            model.half()
+    # Restore original model dtype if necessary
+    if original_dtype == torch.float16:
+        model.half()
 
-        # Detach and convert adversarial example to original image dtype for subsequent inference
-        return im_adv.detach().to(original_dtype)
+    # Detach and convert adversarial example to original image dtype for subsequent inference
+    return im_adv.detach().to(original_dtype)
 
 if __name__ == "__main__":
     opt = parse_opt()
