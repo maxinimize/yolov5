@@ -12,6 +12,7 @@ class PGD(Attacker):
         self.lr = lr # amount of update in each step
         self.epoch = epoch # time of attack steps
         self.device = next(model.parameters()).device
+        self.compute_loss = ComputeLoss(model)
 
     def forward(self, x, y):
         """
@@ -28,8 +29,7 @@ class PGD(Attacker):
                 self.model.zero_grad()
                 x_adv.requires_grad = True
                 logits = self.model(x_adv) #f(T((x))
-                compute_loss = ComputeLoss(self.model)
-                loss, loss_components = compute_loss(logits, y.to(self.device))
+                loss, loss_components = self.compute_loss(logits, y.to(self.device))
                 loss.backward()   
                                    
                 grad = x_adv.grad.detach()
