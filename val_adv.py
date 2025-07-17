@@ -269,6 +269,15 @@ def run(
 
         # Load model
         model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
+
+        # Attach model hyp to DetectMultiBackend
+        model.hyp = model.model.hyp if hasattr(model.model, 'hyp') else None
+        if model.hyp is None:
+            LOGGER.info("Model hyperparameters not found in checkpoint. Using default 'hyp.scratch-low.yaml'")
+            import yaml
+            with open('data/hyps/hyp.scratch-low.yaml', 'r') as f:
+                model.hyp = yaml.safe_load(f)
+
         stride, pt, jit, engine = model.stride, model.pt, model.jit, model.engine
         imgsz = check_img_size(imgsz, s=stride)  # check image size
         half = model.fp16  # FP16 supported on limited backends with CUDA
@@ -293,6 +302,7 @@ def run(
 
     # Dataloader
     if not training:
+        # smart_inference_mode commented out -> disable gradients manually (3 in run())
         with torch.no_grad():
             if pt and not single_cls:  # check --weights are trained on --data
                 ncm = model.model.nc
