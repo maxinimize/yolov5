@@ -349,13 +349,13 @@ def run(
                 im /= 255  # 0 - 255 to 0.0 - 1.0
                 nb, _, height, width = im.shape  # batch size, channels, height, width
 
-        # Attack on validation images
-        im_adv = generate_adv_example(model, im.clone(), targets)
+        # Attack on validation images - use the correct model object for the adversarial attack based on the execution context
+        im_adv = generate_adv_example(model if training else model.model, im.clone(), targets)
 
         with torch.no_grad():
             # Inference
             with dt[1]:
-                preds, train_out = model(im_adv) if compute_loss else (model(im, augment=augment), None)
+                preds, train_out = model(im_adv) if compute_loss else (model(im_adv, augment=augment), None)
 
             # Loss
             if compute_loss:
