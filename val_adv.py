@@ -615,7 +615,7 @@ def main(opt):
         else:
             raise NotImplementedError(f'--task {opt.task} not in ("train", "val", "test", "speed", "study")')
 
-def generate_adv_example(model, im, targets, epsilon=0.05, epoch=5, lr=0.02):
+def generate_adv_example(model, im, targets, epsilon=0.05, epoch=20, lr=0.005):
     """
     Generates an adversarial example using PGD attack.
     """

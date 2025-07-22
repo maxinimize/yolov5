@@ -23,7 +23,7 @@ class PGD(Attacker):
         """
         
         with torch.enable_grad():
-            self.model.train()
+            self.model.eval()
             x_adv = x.clone().detach()
             for _ in range(self.epoch):
                 self.model.zero_grad()
@@ -41,4 +41,5 @@ class PGD(Attacker):
                 x_adv = x_adv.detach()
                 x_adv = torch.clamp(x_adv, 0, 1)
                 self.model.zero_grad()
+            self.model.train()
             return x_adv

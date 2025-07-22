@@ -366,6 +366,10 @@ def train(hyp, opt, device, callbacks):
         f"Logging results to {colorstr('bold', save_dir)}\n"
         f"Starting training for {epochs} epochs..."
     )
+
+    # Adversarial training setup
+    attacker = PGD(model=model, epsilon=0.05, epoch=20, lr=0.005)
+
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         callbacks.run("on_train_epoch_start")
         model.train()
@@ -419,13 +423,19 @@ def train(hyp, opt, device, callbacks):
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
 
                 # Adversarial training
-                attacker = PGD(model=model, epsilon=0.05, epoch=5, lr=0.02)
-                imgs_adv = attacker.forward(imgs, targets) # get adversarial image
+                # disable AMP and get adversarial image in float32
+                with torch.cuda.amp.autocast(False):
+                    imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
+
+                # re-enable AMP
+                if amp:
+                    imgs_adv = imgs_adv.half()
+
                 pred_adv = model(imgs_adv)
                 loss_adv, loss_items_adv = compute_loss(pred_adv, targets.to(device))
 
-                loss = loss + loss_adv
-                loss_items = loss_items + loss_items_adv
+                loss = loss + 0.5 * loss_adv
+                loss_items = loss_items + 0.5 * loss_items_adv
 
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
