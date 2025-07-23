@@ -417,14 +417,14 @@ def train(hyp, opt, device, callbacks):
                     imgs = nn.functional.interpolate(imgs, size=ns, mode="bilinear", align_corners=False)
 
             # Forward
-            with torch.amp.autocast(cuda, amp):
+            with torch.amp.autocast(device_type='cuda', enabled=amp):
 
                 pred = model(imgs)  # forward
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 
                 # Adversarial training
                 # disable AMP and get adversarial image in float32
-                with torch.amp.autocast(cuda, False):
+                with torch.amp.autocast(device_type='cuda', enabled=False):
                     imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
                 # # re-enable AMP
