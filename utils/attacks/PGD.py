@@ -28,7 +28,8 @@ class PGD(Attacker):
             for _ in range(self.epoch):
                 self.model.zero_grad()
                 x_adv.requires_grad = True
-                logits = self.model(x_adv) #f(T((x))
+                logits = self.model(x_adv, return_outputs=True) #f(T((x))
+                print(type(logits), len(logits))
                 loss, loss_components = self.compute_loss(logits, y.to(self.device))
                 loss.backward()   
                                    

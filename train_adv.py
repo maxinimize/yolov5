@@ -368,7 +368,7 @@ def train(hyp, opt, device, callbacks):
     )
 
     # # Adversarial training setup
-    # attacker = PGD(model=model, epsilon=0.05, epoch=20, lr=0.005)
+    attacker = PGD(model=model, epsilon=0.05, epoch=20, lr=0.005)
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         callbacks.run("on_train_epoch_start")
@@ -421,18 +421,17 @@ def train(hyp, opt, device, callbacks):
 
                 pred = model(imgs)  # forward
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
-                print('imgs shape:', imgs.shape)
-                attacker = PGD(model=model, epsilon=0.05, epoch=20, lr=0.005)
+                
                 # Adversarial training
                 # disable AMP and get adversarial image in float32
-                # with torch.cuda.amp.autocast(False):
-                #     imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
+                with torch.cuda.amp.autocast(False):
+                    imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
                 # # re-enable AMP
-                # if amp:
-                #     imgs_adv = imgs_adv.half()
+                if amp:
+                    imgs_adv = imgs_adv.half()
 
-                imgs_adv = attacker.forward(imgs, targets) # get adversarial image
+                # imgs_adv = attacker.forward(imgs, targets) # get adversarial image
 
                 pred_adv = model(imgs_adv)
                 loss_adv, loss_items_adv = compute_loss(pred_adv, targets.to(device))
