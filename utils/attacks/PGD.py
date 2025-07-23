@@ -3,10 +3,13 @@ import torch
 import torch.nn.functional as F
 from utils.attacks.attacker import Attacker
 from utils.loss import ComputeLoss
+from copy import deepcopy
 
 class PGD(Attacker):
     def __init__(self, model, config=None, target=None, epsilon=0.2, lr = 0.01, epoch = 10):
-        super(PGD, self).__init__(model, config, epsilon)
+        # deepcopy the model to avoid affecting the training model
+        model_for_attack = deepcopy(model).eval().to(next(model.parameters()).device)
+        super(PGD, self).__init__(model_for_attack, config, epsilon)
         self.target = target
         self.epsilon = epsilon # total update limit
         self.lr = lr # amount of update in each step
@@ -23,12 +26,12 @@ class PGD(Attacker):
         """
         
         with torch.enable_grad():
-            self.model.eval()
+            self.model.train()
             x_adv = x.clone().detach()
             for _ in range(self.epoch):
                 self.model.zero_grad()
                 x_adv.requires_grad = True
-                logits = self.model.model(x_adv) #f(T((x))
+                logits = self.model(x_adv) #f(T((x))
                 loss, loss_components = self.compute_loss(logits, y.to(self.device))
                 loss.backward()   
                                    
@@ -41,5 +44,4 @@ class PGD(Attacker):
                 x_adv = x_adv.detach()
                 x_adv = torch.clamp(x_adv, 0, 1)
                 self.model.zero_grad()
-            self.model.train()
             return x_adv
