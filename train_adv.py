@@ -421,7 +421,7 @@ def train(hyp, opt, device, callbacks):
 
                 pred = model(imgs)  # forward
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
-
+                print('imgs shape:', imgs.shape)
                 # Adversarial training
                 # disable AMP and get adversarial image in float32
                 # with torch.cuda.amp.autocast(False):
