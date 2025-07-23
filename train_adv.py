@@ -424,12 +424,14 @@ def train(hyp, opt, device, callbacks):
 
                 # Adversarial training
                 # disable AMP and get adversarial image in float32
-                with torch.cuda.amp.autocast(False):
-                    imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
+                # with torch.cuda.amp.autocast(False):
+                #     imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
-                # re-enable AMP
-                if amp:
-                    imgs_adv = imgs_adv.half()
+                # # re-enable AMP
+                # if amp:
+                #     imgs_adv = imgs_adv.half()
+
+                imgs_adv = attacker.forward(imgs, targets) # get adversarial image
 
                 pred_adv = model(imgs_adv)
                 loss_adv, loss_items_adv = compute_loss(pred_adv, targets.to(device))
