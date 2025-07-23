@@ -350,7 +350,7 @@ def run(
                 nb, _, height, width = im.shape  # batch size, channels, height, width
 
         # Attack on validation images - use the correct model object for the adversarial attack based on the execution context
-        im_adv = generate_adv_example(model if training else model.model, im.clone(), targets)
+        im_adv = generate_adv_example(model.model, im.clone(), targets)
 
         with torch.no_grad():
             # Inference
