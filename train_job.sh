@@ -1,20 +1,21 @@
 #!/bin/bash
 #SBATCH --job-name=yolov5_train
 #SBATCH --account=def-rsolisob
-#SBATCH --time=0-24:00        
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
-#SBATCH --gres=gpu:1           
+#SBATCH --time=0-01:00        
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=8G
+#SBATCH --gres=gpu:1
+#SBATCH --qos=devel           
 #SBATCH --output=logs/%x-%j.out  
 
 # Load necessary modules
 module load python/3.10
-module load gcc/9.3.0
-module load cuda/11.4
+module load gcc/13.3
+module load cuda/11.8
 module load opencv/4.11.0
 
 # activate virtual environment
-bash setup_env.sh
+bash yolov5_env.sh
 source yolov5_env/bin/activate
 
 # train the YOLOv5 model
