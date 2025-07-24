@@ -10,8 +10,8 @@
 
 # Load necessary modules
 module load python/3.10
-module load gcc/13.3
-module load cuda/11.8.0
+module load gcc/12.3
+module load cuda/12.2
 module load opencv/4.11.0
 
 # activate virtual environment

@@ -5,8 +5,9 @@ VENV_PATH="yolov5_env"
 
 # load necessary modules on SHARCNET
 module load python/3.10
-module load gcc/13.3
-module load cuda/11.8.0
+module load StdEnv/2023
+module load gcc/12.3
+module load cuda/12.2
 module load opencv/4.11.0
 
 # Check if the virtual environment already exists
@@ -20,9 +21,9 @@ else
     python -m venv $VENV_PATH
     source $VENV_PATH/bin/activate
     pip install --upgrade pip
-    
-    # Explicitly install torch for CUDA 11.8
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+    # Explicitly install torch for CUDA 12
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
     if [ -f "requirements_sharcnet.txt" ]; then
         pip install -r requirements_sharcnet.txt
