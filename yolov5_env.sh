@@ -4,7 +4,7 @@
 VENV_PATH="yolov5_env"
 
 # load necessary modules on SHARCNET
-module load python/3.10
+module load python/3.11
 module load StdEnv/2023
 module load gcc/12.3
 module load cuda/12.2
@@ -31,6 +31,9 @@ else
         # # Create a temporary requirements file, excluding opencv-
         grep -v "opencv" requirements.txt > temp_requirements.txt
         pip install -r temp_requirements.txt
+        pip install ultralytics --no-deps
+        # set PYTHONPATH
+        export PYTHONPATH=/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/CUDA/gcc12/cuda12.2/opencv/4.11.0/lib/python3.11/site-packages:$PYTHONPATH
         rm temp_requirements.txt
     else
         echo "requirements.txt not found, Exiting..."
