@@ -6,7 +6,7 @@ VENV_PATH="yolov5_env"
 # load necessary modules on SHARCNET
 module load python/3.10
 module load gcc/13.3
-module load cuda/11.8
+module load cuda/11.8.0
 module load opencv/4.11.0
 
 # Check if the virtual environment already exists
