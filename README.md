@@ -1,5 +1,5 @@
 <h1 align="center">Efficient Robust Object Detection</h1>
-<h2>Instructions (for Sharcnet via jobs)</h2>
+<h2>Instructions (for Sharcnet)</h2>
 <ol>
 <li> In an ssh session to a cluster
 
@@ -7,10 +7,25 @@
 sbatch yolov5_env.sh 
 # check progress by checking the generated slurm[number].out
 ```
+</ol>
 
+<h2>via JupyterLab(WIP)</h2>
+<ol>
+<li>run in ssh
 
+```bash
+>. yolov5_env/bin/activate
+
+>python -m ipykernel install --user --name=ENV --display-name "ENV"
+```
 </li>
-<li> Then run
+<li>
+Go into train_adv.py and make the kernel ENV and run cells consecutively
+</li>
+</ol>
+<h2>via jobs:(WIP)</h2>
+<ol>
+<li> Run in ssh
 
 ```bash
 sbatch train_job.sh
