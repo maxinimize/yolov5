@@ -1,3 +1,30 @@
+<h1 align="center">Efficient Robust Object Detection</h1>
+<h2>Instructions (for Sharcnet via jobs)</h2>
+<ol>
+<li> In an ssh session to a cluster
+
+```bash
+sbatch yolov5_env.sh 
+# check progress by checking the generated slurm[number].out
+```
+
+
+</li>
+<li> Then run
+
+```bash
+sbatch train_job.sh
+```
+Then just wait for all jobs to finish. Progress can be checked through the out file or running:
+
+```bash
+sq
+```
+Which will display how much time is left in jobs. Generated weight is currently unused but you can find example results
+in output/images after the jobs finish
+
+</li>
+</ol>
 <div align="center">
   <p>
     <a href="https://www.ultralytics.com/blog/all-you-need-to-know-about-ultralytics-yolo11-and-its-applications" target="_blank">

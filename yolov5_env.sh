@@ -2,6 +2,7 @@
 #SBATCH --job-name=yolov5setup
 #SBATCH --account=def-rsolisob
 #SBATCH --time=0-00:15
+#SBATCH --mem=1G
 # env name
 VENV_PATH="yolov5_env"
 
@@ -20,20 +21,21 @@ if [ -d "$VENV_PATH" ]; then
     exit 1
 else
     echo "A virtual environment does not exist, creating a new one..."
-    python -m venv $VENV_PATH
+    virtualenv --no-download $VENV_PATH
     source $VENV_PATH/bin/activate
     pip install --upgrade pip
 
-    # Explicitly install torch for CUDA 12
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    # Explicitly install torch 
+    # should be for CUDA 12
+    pip install --no-index torch torchvision torchtext torchaudio
 
     if [ -f "requirements_sharcnet.txt" ]; then
-        pip install -r requirements_sharcnet.txt
+        pip install --no-index -r requirements_sharcnet.txt
     elif [ -f "requirements.txt" ]; then
         # # Create a temporary requirements file, excluding opencv-
         grep -v "opencv" requirements.txt > temp_requirements.txt
-        pip install -r temp_requirements.txt
-        pip install ultralytics --no-deps
+        pip install --no-index -r temp_requirements.txt
+        pip install --no-index ultralytics --no-deps
         # set PYTHONPATH
         export PYTHONPATH=/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/CUDA/gcc12/cuda12.2/opencv/4.11.0/lib/python3.11/site-packages:$PYTHONPATH
         rm temp_requirements.txt
