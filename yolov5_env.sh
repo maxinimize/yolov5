@@ -1,5 +1,7 @@
 #!/bin/bash
-
+#SBATCH --job-name=yolov5setup
+#SBATCH --account=def-rsolisob
+#SBATCH --time=0-00:15
 # env name
 VENV_PATH="yolov5_env"
 
