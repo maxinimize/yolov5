@@ -5,7 +5,7 @@
 
 ```bash
 sbatch yolov5_env.sh 
-# check progress by checking the generated slurm[number].out
+# check progress by checking the generated slurm[number].out in the same directory
 ```
 </ol>
 
@@ -23,22 +23,27 @@ sbatch yolov5_env.sh
 Go into train_adv.py and make the kernel ENV and run cells consecutively
 </li>
 </ol>
-<h2>via jobs:(WIP)</h2>
+<h2>via jobs:</h2>
 <ol>
+<li>The easiest way to upload and download files is to setup <a href=https://docs.alliancecan.ca/wiki/Globus>Globus</a> for the cluster you want to use</li>
+<li>
+Download from <a href=https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip>https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip</a> and upload the extracted folder (it should contain folders called images and labels directly inside) into a seperate folder named datasets in the same folder as the project itself, NOT in the actual project folder
+</li>
+<li>This project was tested on the basis of using a pretrained weight <a href=https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.pt>yolov5s.pt</a> (download into the actual project directory) and you will also need to download <a href=https://github.com/ultralytics/assets/releases/download/v0.0.0/Arial.ttf>arial</a> into /home/[your name]/.config/Ultralytics/ (NOTE: .config is hidden in Globus)</li>
 <li> Run in ssh
 
 ```bash
 sbatch train_job.sh
 ```
-Then just wait for all jobs to finish. Progress can be checked through the out file or running:
+Then just wait for all jobs to finish. Progress can be checked through the out file in logs or running:
 
 ```bash
 sq
 ```
 Which will display how much time is left in jobs. Generated weight is currently unused but you can find example results
-in output/images after the jobs finish
-
+in runs/exp[latest run number].
 </li>
+<li>There are various settings that can be adjusted from the script like epochs, workers + cpu count, etc...</li>
 </ol>
 <div align="center">
   <p>
