@@ -368,7 +368,7 @@ def train(hyp, opt, device, callbacks):
     )
 
     # Adversarial training setup
-    attacker = PGD(model=model, epsilon=0.05, epoch=20, lr=0.005)
+    # attacker = PGD(model=model, epsilon=0.05, epoch=20, lr=0.005)
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         callbacks.run("on_train_epoch_start")
@@ -425,6 +425,7 @@ def train(hyp, opt, device, callbacks):
                 # Adversarial training
                 # disable AMP and get adversarial image in float32
                 with torch.amp.autocast(device_type='cuda', enabled=False):
+                    attacker = PGD(model=model, epsilon=0.05, epoch=20, lr=0.005)
                     imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
                 # # re-enable AMP

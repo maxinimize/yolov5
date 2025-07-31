@@ -338,6 +338,7 @@ def run(
     jdict, stats, ap, ap_class = [], [], [], []
     callbacks.run("on_val_start")
     pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # progress bar
+    # attacker = PGD(model=model if training else model.model, epsilon=0.05, epoch=20, lr=0.005)
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
         callbacks.run("on_val_batch_start")
         with torch.no_grad():

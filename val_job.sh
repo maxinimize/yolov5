@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=yolov5_train
+#SBATCH --job-name=yolov5_val
 #SBATCH --account=def-rsolisob
-#SBATCH --time=0-15:00
+#SBATCH --time=0-1:00        
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:1        
 #SBATCH --output=logs/%x-%j.out  
 
 # Load necessary modules SBATCH --qos=devel
@@ -20,15 +20,5 @@ source yolov5_env/bin/activate
 # set OpenCV path for cv2
 export PYTHONPATH=/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/CUDA/gcc12/cuda12.2/opencv/4.11.0/lib/python3.11/site-packages:$PYTHONPATH
 
-# Fix: prevent BLAS thread explosion (for FlexiBLAS + BLIS)
-export OMP_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1
-
-# Optional: force FlexiBLAS to use openblas
-# export FLEXIBLAS_BACKEND=openblas
-
 # train the YOLOv5 model
-# workers correspond to cpu cores used, default is 8 but now its explicit. More means training goes faster.
-python train_adv.py --img 640 --batch 16 --epochs 100 --data coco.yaml --weights yolov5s.pt --cache --workers 8
+python val_adv.py --weights runs/train/exp7/weights/best.pt --data coco128.yaml --img 640 --half

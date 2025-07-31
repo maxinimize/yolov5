@@ -15,7 +15,7 @@ class PGD(Attacker):
         self.lr = lr # amount of update in each step
         self.epoch = epoch # time of attack steps
         self.device = next(model.parameters()).device
-        self.compute_loss = ComputeLoss(model)
+        self.compute_loss = ComputeLoss(self.model)
 
     def forward(self, x, y):
         """
