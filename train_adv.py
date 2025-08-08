@@ -95,7 +95,7 @@ from utils.torch_utils import (
     smart_resume,
     torch_distributed_zero_first,
 )
-
+from utils.attack_utils import setup_attack_model
 from utils.attacks.PGD import PGD
 
 LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))  # https://pytorch.org/docs/stable/elastic/run.html
@@ -226,6 +226,42 @@ def train(hyp, opt, device, callbacks):
     else:
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
     amp = check_amp(model)  # check AMP
+
+    # Attacker model
+    attack_model = setup_attack_model(
+        attack_weights=opt.attack_weights,
+        main_model=model,
+        device=device,
+        nc=nc,
+        training=True
+    )
+
+    # # DEBUG: Print model types for comparison
+    # print("=== MODEL COMPARISON DEBUG ===")
+    # print(f"Main model type: {type(model)}")
+    # print(f"Attack model type: {type(attack_model)}")
+    # with torch.no_grad():
+    #     dummy_input = torch.randn(1, 3, 640, 640).to(device)
+        
+    #     main_output = model(dummy_input)
+    #     attack_output = attack_model(dummy_input)
+        
+    #     print(f"Main model output type: {type(main_output)}")
+    #     print(f"Attack model output type: {type(attack_output)}")
+        
+    #     if isinstance(main_output, (list, tuple)):
+    #         print(f"Main model outputs: {len(main_output)} items")
+    #         for i, out in enumerate(main_output):
+    #             print(f"  main_output[{i}].shape = {out.shape}")
+        
+    #     if isinstance(attack_output, (list, tuple)):
+    #         print(f"Attack model outputs: {len(attack_output)} items")
+    #         for i, out in enumerate(attack_output):
+    #             if hasattr(out, 'shape'):
+    #                 print(f"  attack_output[{i}].shape = {out.shape}")
+    #             else:
+    #                 print(f"  attack_output[{i}] type = {type(out)}")
+    # print("=== END DEBUG ===")
 
     # Freeze
     freeze = [f"model.{x}." for x in (freeze if len(freeze) > 1 else range(freeze[0]))]  # layers to freeze
@@ -368,7 +404,7 @@ def train(hyp, opt, device, callbacks):
     )
 
     # Adversarial training setup
-    # attacker = PGD(model=model, epsilon=0.05, epoch=20, lr=0.005)
+    # attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         callbacks.run("on_train_epoch_start")
@@ -425,7 +461,7 @@ def train(hyp, opt, device, callbacks):
                 # Adversarial training
                 # disable AMP and get adversarial image in float32
                 with torch.amp.autocast(device_type='cuda', enabled=False):
-                    attacker = PGD(model=model, epsilon=0.05, epoch=20, lr=0.005)
+                    attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
                     imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
                 # # re-enable AMP
@@ -437,8 +473,8 @@ def train(hyp, opt, device, callbacks):
                 pred_adv = model(imgs_adv)
                 loss_adv, loss_items_adv = compute_loss(pred_adv, targets.to(device))
 
-                loss = loss + 0.5 * loss_adv
-                loss_items = loss_items + 0.5 * loss_items_adv
+                loss = loss + loss_adv
+                loss_items = loss_items + loss_items_adv
 
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
@@ -494,6 +530,7 @@ def train(hyp, opt, device, callbacks):
                     plots=False,
                     callbacks=callbacks,
                     compute_loss=compute_loss,
+                    attack_model=attack_model,  # pass attack model for adversarial validation
                 )
 
             # Update best mAP
@@ -559,6 +596,7 @@ def train(hyp, opt, device, callbacks):
                         plots=plots,
                         callbacks=callbacks,
                         compute_loss=compute_loss,
+                        attack_model=attack_model,  # pass attack model for adversarial validation
                     )  # val best model with plots
                     if is_coco:
                         callbacks.run("on_fit_epoch_end", list(mloss) + list(results) + lr, epoch, best_fitness, fi)
@@ -630,6 +668,7 @@ def parse_opt(known=False):
     parser.add_argument("--save-period", type=int, default=-1, help="Save checkpoint every x epochs (disabled if < 1)")
     parser.add_argument("--seed", type=int, default=0, help="Global training seed")
     parser.add_argument("--local_rank", type=int, default=-1, help="Automatic DDP Multi-GPU argument, do not modify")
+    parser.add_argument("--attack-weights", type=str, default="", help="attack model weights path for adversarial training")
 
     # Logger arguments
     parser.add_argument("--entity", default=None, help="Entity")
@@ -987,7 +1026,8 @@ def run(**kwargs):
         save_period (int, optional): Frequency in epochs to save checkpoints. Disabled if < 1. Defaults to -1.
         seed (int, optional): Global training random seed. Defaults to 0.
         local_rank (int, optional): Automatic DDP Multi-GPU argument. Do not modify. Defaults to -1.
-
+        attack_weights (str, optional): Path to attack model weights for adversarial training. Defaults to empty string.
+    
     Returns:
         None: The function initiates YOLOv5 training or hyperparameter evolution based on the provided options.
 

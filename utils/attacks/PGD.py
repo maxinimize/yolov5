@@ -25,6 +25,11 @@ class PGD(Attacker):
         :return adversarial image
         """
         
+        # # DEBUG: Print shapes and types
+        # print(f"DEBUG PGD: x.shape = {x.shape}")
+        # print(f"DEBUG PGD: y.shape = {y.shape}")
+        # print(f"DEBUG PGD: self.model type = {type(self.model)}")
+
         with torch.enable_grad():
             self.model.train()
             x_adv = x.clone().detach()
@@ -32,7 +37,21 @@ class PGD(Attacker):
                 self.model.zero_grad()
                 x_adv.requires_grad = True
                 logits = self.model(x_adv) #f(T((x))
+
+                # # DEBUG: Print logits type and shape
+                # print(f"DEBUG PGD step {step}: logits type = {type(logits)}")
+                # if isinstance(logits, (list, tuple)):
+                #     print(f"DEBUG PGD step {step}: logits has {len(logits)} outputs")
+                #     for idx, output in enumerate(logits):
+                #         print(f"DEBUG PGD step {step}: logits[{idx}].shape = {output.shape}")
+                # else:
+                #     print(f"DEBUG PGD step {step}: logits.shape = {logits.shape}")
+                # print(f"DEBUG PGD step {step}: About to call compute_loss")
+
                 loss, loss_components = self.compute_loss(logits, y.to(self.device))
+
+                # print(f"DEBUG PGD step {step}: loss = {loss}")
+
                 loss.backward()   
                                    
                 grad = x_adv.grad.detach()
@@ -44,4 +63,8 @@ class PGD(Attacker):
                 x_adv = x_adv.detach()
                 x_adv = torch.clamp(x_adv, 0, 1)
                 self.model.zero_grad()
+
+                # if step == 0:
+                #     print("DEBUG PGD: First step completed successfully")
+            # self.model.eval()
             return x_adv

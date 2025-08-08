@@ -59,6 +59,7 @@ from utils.general import (
 from utils.metrics import ConfusionMatrix, ap_per_class, box_iou
 from utils.plots import output_to_target, plot_images, plot_val_study
 from utils.torch_utils import select_device, smart_inference_mode
+from utils.attack_utils import setup_attack_model
 from utils.attacks.PGD import PGD
 
 
@@ -215,6 +216,8 @@ def run(
     plots=True,
     callbacks=Callbacks(),
     compute_loss=None,
+    attack_weights="", # attack model weights path for adversarial training
+    attack_model=None, # attack model from training
 ):
     """
     Evaluates a YOLOv5 model on a dataset and logs performance metrics.
@@ -260,6 +263,8 @@ def run(
         device, pt, jit, engine = next(model.parameters()).device, True, False, False  # get model device, PyTorch model
         half &= device.type != "cpu"  # half precision only supported on CUDA
         model.half() if half else model.float()
+        if attack_model is None:
+            LOGGER.warning("No attack model provided for adversarial validation during training")
     else:  # called directly
         device = select_device(device, batch_size=batch_size)
 
@@ -292,6 +297,14 @@ def run(
         # Data
         data = check_dataset(data)  # check
 
+        attack_model = setup_attack_model(
+            attack_weights=attack_weights,
+            main_model=model,
+            device=device,
+            nc=1 if single_cls else int(data["nc"]),
+            training=False
+        )
+    
     # Configure
     model.eval()
     cuda = device.type != "cpu"
@@ -351,7 +364,7 @@ def run(
                 nb, _, height, width = im.shape  # batch size, channels, height, width
 
         # Attack on validation images - use the correct model object for the adversarial attack based on the execution context
-        im_adv = generate_adv_example(model if training else model.model, im.clone(), targets)
+        im_adv = generate_adv_example(attack_model, im.clone(), targets)
 
         with torch.no_grad():
             # Inference
@@ -555,6 +568,7 @@ def parse_opt():
     parser.add_argument("--exist-ok", action="store_true", help="existing project/name ok, do not increment")
     parser.add_argument("--half", action="store_true", help="use FP16 half-precision inference")
     parser.add_argument("--dnn", action="store_true", help="use OpenCV DNN for ONNX inference")
+    parser.add_argument("--attack-weights", type=str, default="", help="attack model weights path for adversarial training")
     opt = parser.parse_args()
     opt.data = check_yaml(opt.data)  # check YAML
     opt.save_json |= opt.data.endswith("coco.yaml")
@@ -616,33 +630,34 @@ def main(opt):
         else:
             raise NotImplementedError(f'--task {opt.task} not in ("train", "val", "test", "speed", "study")')
 
-def generate_adv_example(model, im, targets, epsilon=0.05, epoch=20, lr=0.005):
+def generate_adv_example(attack_model, im, targets, epsilon=0.05, epoch=20, lr=0.005):
     """
     Generates an adversarial example using PGD attack.
     """
-    # Record original model dtype to restore it later
-    original_dtype = next(model.parameters()).dtype
+    if attack_model is None:
+        LOGGER.warning("No attack model available, returning original images")
+        return im
+
+    # Record original attack model dtype to restore it later
+    original_dtype = next(attack_model.parameters()).dtype
     
-    # Ensure input and model are float32 for attack stability
+    # Ensure input and attack model are float32 for attack stability
     im_for_attack = im.float()
-    model.float()
+    attack_model.float()
 
     with torch.enable_grad():
-        model.train()  # Set model to train mode for gradient calculation
         im_for_attack.requires_grad = True
 
         # Create and apply attack
-        attacker = PGD(model=model, epsilon=epsilon, epoch=epoch, lr=lr)
+        attacker = PGD(model=attack_model, epsilon=epsilon, epoch=epoch, lr=lr)
         im_adv = attacker.forward(im_for_attack, targets)
 
-        model.eval()  # Restore model to eval mode
-
-    # Restore original model dtype if necessary
+    # Restore original attack model dtype if necessary
     if original_dtype == torch.float16:
-        model.half()
+        attack_model.half()
 
     # Detach and convert adversarial example to original image dtype for subsequent inference
-    return im_adv.detach().to(original_dtype)
+    return im_adv.detach().to(im.dtype)
 
 if __name__ == "__main__":
     opt = parse_opt()
