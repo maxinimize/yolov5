@@ -102,7 +102,7 @@ LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))  # https://pytorch.org/docs/stable
 RANK = int(os.getenv("RANK", -1))
 WORLD_SIZE = int(os.getenv("WORLD_SIZE", 1))
 GIT_INFO = check_git_info()
-
+torch.autograd.set_detect_anomaly(True)
 
 def train(hyp, opt, device, callbacks):
     """
@@ -392,7 +392,7 @@ def train(hyp, opt, device, callbacks):
     maps = np.zeros(nc)  # mAP per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
-    scaler = torch.cuda.amp.GradScaler(enabled=amp)
+    scaler = torch.amp.GradScaler(device="cuda", enabled=amp)
     stopper, stop = EarlyStopping(patience=opt.patience), False
     compute_loss = ComputeLoss(model)  # init loss class
     callbacks.run("on_train_start")
@@ -403,8 +403,13 @@ def train(hyp, opt, device, callbacks):
         f"Starting training for {epochs} epochs..."
     )
 
+    for m in model.modules():
+        if hasattr(m, 'inplace') and m.inplace:
+            m.inplace = False
+
+
     # Adversarial training setup
-    # attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
+    attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         callbacks.run("on_train_epoch_start")
@@ -452,37 +457,66 @@ def train(hyp, opt, device, callbacks):
                     ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
                     imgs = nn.functional.interpolate(imgs, size=ns, mode="bilinear", align_corners=False)
 
-            # Forward
-            with torch.amp.autocast(device_type='cuda', enabled=amp):
+            # # Forward
+            # with torch.amp.autocast(device_type='cuda', enabled=amp):
 
-                pred = model(imgs)  # forward
-                loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
+            #     pred = model(imgs)  # forward
+            #     loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 
-                # Adversarial training
-                # disable AMP and get adversarial image in float32
-                with torch.amp.autocast(device_type='cuda', enabled=False):
-                    attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
-                    imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
+            #     # Adversarial training
+            #     # disable AMP and get adversarial image in float32
+            #     with torch.amp.autocast(device_type='cuda', enabled=False):
+            #         # attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
+            #         imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
-                # # re-enable AMP
-                if amp:
-                    imgs_adv = imgs_adv.half()
+            #     # # re-enable AMP
+            #     if amp:
+            #         imgs_adv = imgs_adv.half()
 
-                # imgs_adv = attacker.forward(imgs, targets) # get adversarial image
+            #     # imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
+            #     pred_adv = model(imgs_adv)
+            #     loss_adv, loss_items_adv = compute_loss(pred_adv, targets.to(device))
+
+            #     loss = loss + loss_adv
+            #     loss_items = loss_items + loss_items_adv
+
+            #     if RANK != -1:
+            #         loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
+            #     if opt.quad:
+            #         loss *= 4.0
+
+            # # Backward
+            # scaler.scale(loss).backward()
+
+            # Clean pass
+            with torch.amp.autocast(device_type='cuda', enabled=amp):
+                pred = model(imgs)
+                loss_clean, loss_items_clean = compute_loss(pred, targets.to(device))
+                if RANK != -1: loss_clean *= WORLD_SIZE
+                if opt.quad:   loss_clean *= 4.0
+            if RANK != -1:
+                with model.no_sync():
+                    scaler.scale(loss_clean).backward()
+            else:
+                scaler.scale(loss_clean).backward()
+
+            # Adv pass
+            with torch.amp.autocast(device_type='cuda', enabled=False):
+                imgs_adv = attacker.forward(imgs.float(), targets)
+            if amp: imgs_adv = imgs_adv.half()
+
+            with torch.amp.autocast(device_type='cuda', enabled=amp):
                 pred_adv = model(imgs_adv)
                 loss_adv, loss_items_adv = compute_loss(pred_adv, targets.to(device))
+                if RANK != -1: loss_adv *= WORLD_SIZE
+                if opt.quad:   loss_adv *= 4.0
+            scaler.scale(loss_adv).backward()
 
-                loss = loss + loss_adv
-                loss_items = loss_items + loss_items_adv
+            loss_items = loss_items_clean + loss_items_adv
 
-                if RANK != -1:
-                    loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
-                if opt.quad:
-                    loss *= 4.0
-
-            # Backward
-            scaler.scale(loss).backward()
+            # times 0.5 to balance clean and adversarial losses
+            # loss_clean *= 0.5; loss_adv *= 0.5
 
             # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
             if ni - last_opt_step >= accumulate:
@@ -512,6 +546,11 @@ def train(hyp, opt, device, callbacks):
         lr = [x["lr"] for x in optimizer.param_groups]  # for loggers
         scheduler.step()
 
+        if RANK != -1:
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            torch.distributed.barrier()
+
         if RANK in {-1, 0}:
             # mAP
             callbacks.run("on_train_epoch_end", epoch=epoch)
@@ -520,7 +559,8 @@ def train(hyp, opt, device, callbacks):
             if not noval or final_epoch:  # Calculate mAP
                 results, maps, _ = validate.run(
                     data_dict,
-                    batch_size=batch_size // WORLD_SIZE * 2,
+                    # batch_size=batch_size // WORLD_SIZE,
+                    batch_size=max(1, batch_size // (2 * WORLD_SIZE)),
                     imgsz=imgsz,
                     half=amp,
                     model=model,
@@ -565,11 +605,20 @@ def train(hyp, opt, device, callbacks):
                 callbacks.run("on_model_save", last, epoch, final_epoch, best_fitness, fi)
 
         # EarlyStopping
-        if RANK != -1:  # if DDP training
-            broadcast_list = [stop if RANK == 0 else None]
-            dist.broadcast_object_list(broadcast_list, 0)  # broadcast 'stop' to all ranks
+        # if RANK != -1:  # if DDP training
+        #     broadcast_list = [stop if RANK == 0 else None]
+        #     dist.broadcast_object_list(broadcast_list, 0)  # broadcast 'stop' to all ranks
+        #     if RANK != 0:
+        #         stop = broadcast_list[0]
+
+        if RANK != -1:
+            flag = torch.zeros(1, device=device, dtype=torch.int32)
+            if RANK == 0:
+                flag[0] = int(stop)
+            torch.distributed.broadcast(flag, src=0) 
             if RANK != 0:
-                stop = broadcast_list[0]
+                stop = bool(flag.item())
+                
         if stop:
             break  # must break all DDP ranks
 
@@ -584,7 +633,8 @@ def train(hyp, opt, device, callbacks):
                     LOGGER.info(f"\nValidating {f}...")
                     results, _, _ = validate.run(
                         data_dict,
-                        batch_size=batch_size // WORLD_SIZE * 2,
+                        # batch_size=batch_size // WORLD_SIZE,
+                        batch_size=max(1, batch_size // (2 * WORLD_SIZE)),
                         imgsz=imgsz,
                         model=attempt_load(f, device).half(),
                         iou_thres=0.65 if is_coco else 0.60,  # best pycocotools at iou 0.65

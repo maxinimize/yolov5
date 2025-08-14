@@ -9,6 +9,8 @@ class PGD(Attacker):
     def __init__(self, model, config=None, target=None, epsilon=0.2, lr = 0.01, epoch = 10):
         # deepcopy the model to avoid affecting the training model
         model_for_attack = deepcopy(model).eval().to(next(model.parameters()).device)
+        for p in model_for_attack.parameters():
+            p.requires_grad_(False)
         super(PGD, self).__init__(model_for_attack, config, epsilon)
         self.target = target
         self.epsilon = epsilon # total update limit
@@ -31,12 +33,14 @@ class PGD(Attacker):
         # print(f"DEBUG PGD: self.model type = {type(self.model)}")
 
         with torch.enable_grad():
-            self.model.train()
+            self.model.eval()
             x_adv = x.clone().detach()
             for _ in range(self.epoch):
                 self.model.zero_grad()
                 x_adv.requires_grad = True
                 logits = self.model(x_adv) #f(T((x))
+                if isinstance(logits, (list, tuple)):   # eval() -> (inference, train_out)
+                    logits = logits[1]
 
                 # # DEBUG: Print logits type and shape
                 # print(f"DEBUG PGD step {step}: logits type = {type(logits)}")
@@ -52,16 +56,22 @@ class PGD(Attacker):
 
                 # print(f"DEBUG PGD step {step}: loss = {loss}")
 
-                loss.backward()   
+                # loss.backward()  # for DDP usage
                                    
-                grad = x_adv.grad.detach()
-                grad = grad.sign()
-                x_adv = x_adv + self.lr * grad
+                # grad = x_adv.grad.detach()
+                
+                grad = torch.autograd.grad(
+                    loss, x_adv, retain_graph=False, create_graph=False, only_inputs=True
+                )[0].detach()
+                # grad = grad.sign()
+                with torch.no_grad():
+                    x_adv = x_adv + self.lr * grad.sign()
 
                 # Projection
                 x_adv = x + torch.clamp(x_adv - x, min=-self.epsilon, max=self.epsilon)
-                x_adv = x_adv.detach()
-                x_adv = torch.clamp(x_adv, 0, 1)
+                # x_adv = x_adv.detach()
+                # x_adv = torch.clamp(x_adv, 0, 1)
+                x_adv = torch.clamp(x_adv, 0, 1).detach()
                 self.model.zero_grad()
 
                 # if step == 0:
