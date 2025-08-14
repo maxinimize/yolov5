@@ -32,10 +32,12 @@ export NUMEXPR_NUM_THREADS=1
 # Optional: force FlexiBLAS to use openblas
 # export FLEXIBLAS_BACKEND=openblas
 
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
+
 # train the YOLOv5 model
 # workers correspond to cpu cores used, default is 8 but now its explicit. More means training goes faster.
 python train_adv.py \
-  --img 640 --batch 32 --epochs 50 \
+  --img 640 --batch 24 --epochs 50 \
   --data coco.yaml \
   --weights yolov5x.pt \
   --attack-weights yolov5x.pt \
