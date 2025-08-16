@@ -8,13 +8,12 @@ from utils.downloads import attempt_download
 from utils.torch_utils import de_parallel
 from copy import deepcopy
 
-def setup_attack_model(attack_weights, main_model, device, nc, training=False, imgsz=640):
+def setup_attack_model(attack_weights, device, nc, training=False, imgsz=640):
     """
     Set up the attack model based on the provided parameters.
     
     Args:
         attack_weights (str): Path to the attack model weights.
-        main_model: Main model object.
         device (torch.device): Device.
         nc (int): Number of classes.
         training (bool): Whether in training mode.
@@ -53,19 +52,5 @@ def setup_attack_model(attack_weights, main_model, device, nc, training=False, i
         attack_model.nc = nc  # attach number of classes to model
         attack_model.hyp = hyp  # attach hyperparameters to model
     else:
-        if training:
-            attack_model = deepcopy(main_model)
-        else: # should not happen - always set up attack weights
-            main_model_inner = getattr(main_model, 'model', main_model)
-            attack_model = deepcopy(main_model_inner)
-    
-    # # DEBUG: Print model type and structure
-    # with torch.no_grad():
-    #     test_input = torch.randn(1, 3, 640, 640).to(device)
-    #     test_output = attack_model(test_input)
-    #     print(f"DEBUG: Attack model test output type: {type(test_output)}")
-    #     if isinstance(test_output, (list, tuple)):
-    #         for i, out in enumerate(test_output):
-    #             print(f"DEBUG: test_output[{i}].shape = {out.shape}")
-
+        raise ValueError("attack_weights must be provided for setup_attack_model()")
     return attack_model

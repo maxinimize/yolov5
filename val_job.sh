@@ -21,5 +21,5 @@ source yolov5_env/bin/activate
 export PYTHONPATH=/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/CUDA/gcc12/cuda12.2/opencv/4.11.0/lib/python3.11/site-packages:$PYTHONPATH
 
 # train the YOLOv5 model
-python val_adv.py --weights runs/train/exp/weights/best.pt --attack-weights yolov5x.pt --data coco.yaml --img 640 --half
+python val_adv.py --weights runs/train/exp3/weights/best.pt --attack-weights yolov5x.pt --data coco128.yaml --img 640 --half
 # python val_adv.py --weights yolov5x.pt --attack-weights yolov5x.pt --data coco128.yaml --img 640 --half

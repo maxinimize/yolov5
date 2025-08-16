@@ -58,7 +58,7 @@ from utils.general import (
 )
 from utils.metrics import ConfusionMatrix, ap_per_class, box_iou
 from utils.plots import output_to_target, plot_images, plot_val_study
-from utils.torch_utils import select_device, smart_inference_mode
+from utils.torch_utils import select_device, smart_inference_mode, de_parallel
 from utils.attack_utils import setup_attack_model
 from utils.attacks.PGD import PGD
 
@@ -216,7 +216,7 @@ def run(
     plots=True,
     callbacks=Callbacks(),
     compute_loss=None,
-    attack_weights="", # attack model weights path for adversarial training
+    attack_weights="", # attack model weights path for attacker
     attack_model=None, # attack model from training
 ):
     """
@@ -227,6 +227,7 @@ def run(
         weights (str | list[str], optional): Path to the model weights file(s). Supports various formats including PyTorch,
             TorchScript, ONNX, OpenVINO, TensorRT, CoreML, TensorFlow SavedModel, TensorFlow GraphDef, TensorFlow Lite,
             TensorFlow Edge TPU, and PaddlePaddle.
+        attack_weights (str, optional): Path to attack model weights for adversarial training. Defaults to empty string.
         batch_size (int, optional): Batch size for inference. Default is 32.
         imgsz (int, optional): Input image size (pixels). Default is 640.
         conf_thres (float, optional): Confidence threshold for object detection. Default is 0.001.
@@ -264,7 +265,7 @@ def run(
         half &= device.type != "cpu"  # half precision only supported on CUDA
         model.half() if half else model.float()
         if attack_model is None:
-            LOGGER.warning("No attack model provided for adversarial validation during training")
+            raise ValueError("No attack model provided for validation during adversarial training")
     else:  # called directly
         device = select_device(device, batch_size=batch_size)
 
@@ -275,13 +276,13 @@ def run(
         # Load model
         model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
 
-        # Attach model hyp to DetectMultiBackend
-        model.hyp = model.model.hyp if hasattr(model.model, 'hyp') else None
-        if model.hyp is None:
-            LOGGER.info("Model hyperparameters not found in checkpoint. Using default 'hyp.scratch-low.yaml'")
-            import yaml
-            with open('data/hyps/hyp.scratch-low.yaml', 'r') as f:
-                model.hyp = yaml.safe_load(f)
+        # # Attach model hyp to DetectMultiBackend - in before it's used for attacker, now there's a seperate model
+        # model.hyp = model.model.hyp if hasattr(model.model, 'hyp') else None
+        # if model.hyp is None:
+        #     LOGGER.info("Model hyperparameters not found in checkpoint. Using default 'hyp.scratch-low.yaml'")
+        #     import yaml
+        #     with open('data/hyps/hyp.scratch-low.yaml', 'r') as f:
+        #         model.hyp = yaml.safe_load(f)
 
         stride, pt, jit, engine = model.stride, model.pt, model.jit, model.engine
         imgsz = check_img_size(imgsz, s=stride)  # check image size
@@ -299,12 +300,31 @@ def run(
 
         attack_model = setup_attack_model(
             attack_weights=attack_weights,
-            main_model=model,
             device=device,
             nc=1 if single_cls else int(data["nc"]),
-            training=False
+            training=True,
+            imgsz=imgsz
         )
-    
+
+        # copy anchor for attack model
+        base = de_parallel(getattr(model, "model", model))  # DetectMultiBackend -> DetectionModel
+        if not hasattr(base, "model"):
+            raise TypeError("Expected a PyTorch .pt backend with an inner DetectionModel")
+        if not (hasattr(base, "model") and hasattr(base.model, "__getitem__")):
+            raise TypeError("Inner model does not expose a list-like 'model' container")
+
+        main_head   = base.model[-1]
+        attack_head = de_parallel(attack_model).model[-1]
+
+        if hasattr(main_head, "anchors") and hasattr(attack_head, "anchors"):
+            if main_head.anchors.shape == attack_head.anchors.shape:
+                attack_head.anchors.data.copy_(
+                    main_head.anchors.detach().to(
+                        dtype=attack_head.anchors.dtype,
+                        device=attack_head.anchors.device
+                    )
+                )
+
     # Configure
     model.eval()
     cuda = device.type != "cpu"
@@ -351,7 +371,7 @@ def run(
     jdict, stats, ap, ap_class = [], [], [], []
     callbacks.run("on_val_start")
     pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # progress bar
-    # attacker = PGD(model=model if training else model.model, epsilon=0.05, epoch=20, lr=0.005)
+    attacker = PGD(attack_model, epsilon=0.05, epoch=20, lr=0.005)
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
         callbacks.run("on_val_batch_start")
         with torch.no_grad():
@@ -364,7 +384,7 @@ def run(
                 nb, _, height, width = im.shape  # batch size, channels, height, width
 
         # Attack on validation images - use the correct model object for the adversarial attack based on the execution context
-        im_adv = generate_adv_example(attack_model, im.clone(), targets)
+        im_adv = generate_adv_example(attacker, im.clone(), targets)
 
         with torch.no_grad():
             # Inference
@@ -548,6 +568,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=str, default=ROOT / "data/coco128.yaml", help="dataset.yaml path")
     parser.add_argument("--weights", nargs="+", type=str, default=ROOT / "yolov5s.pt", help="model path(s)")
+    parser.add_argument("--attack-weights", type=str, default=ROOT / "yolov5s.pt", help="model path for attacker")
     parser.add_argument("--batch-size", type=int, default=32, help="batch size")
     parser.add_argument("--imgsz", "--img", "--img-size", type=int, default=640, help="inference size (pixels)")
     parser.add_argument("--conf-thres", type=float, default=0.001, help="confidence threshold")
@@ -568,7 +589,6 @@ def parse_opt():
     parser.add_argument("--exist-ok", action="store_true", help="existing project/name ok, do not increment")
     parser.add_argument("--half", action="store_true", help="use FP16 half-precision inference")
     parser.add_argument("--dnn", action="store_true", help="use OpenCV DNN for ONNX inference")
-    parser.add_argument("--attack-weights", type=str, default="", help="attack model weights path for adversarial training")
     opt = parser.parse_args()
     opt.data = check_yaml(opt.data)  # check YAML
     opt.save_json |= opt.data.endswith("coco.yaml")
@@ -630,31 +650,30 @@ def main(opt):
         else:
             raise NotImplementedError(f'--task {opt.task} not in ("train", "val", "test", "speed", "study")')
 
-def generate_adv_example(attack_model, im, targets, epsilon=0.05, epoch=20, lr=0.005):
+def generate_adv_example(attacker, im, targets):
     """
     Generates an adversarial example using PGD attack.
     """
-    if attack_model is None:
-        LOGGER.warning("No attack model available, returning original images")
-        return im
+    if attacker is None:
+        raise ValueError("Attacker is not initialized. Provide a valid attacker instance.")
 
     # Record original attack model dtype to restore it later
-    original_dtype = next(attack_model.parameters()).dtype
+    original_dtype = next(attacker.model.parameters()).dtype
     
-    # Ensure input and attack model are float32 for attack stability
-    im_for_attack = im.float()
-    attack_model.float()
+    # Ensure attack model are float32 for attack stability
+    attacker.model.float()
 
-    with torch.enable_grad():
-        im_for_attack.requires_grad = True
+    # with torch.enable_grad():
+    #     im_for_attack.requires_grad = True
+    #     attacker = PGD(model=attack_model, epsilon=epsilon, epoch=epoch, lr=lr)
+    #     im_adv = attacker.forward(im_for_attack, targets)
 
-        # Create and apply attack
-        attacker = PGD(model=attack_model, epsilon=epsilon, epoch=epoch, lr=lr)
-        im_adv = attacker.forward(im_for_attack, targets)
+    with torch.amp.autocast(device_type='cuda', enabled=False):
+        im_adv = attacker.forward(im.float(), targets)
 
     # Restore original attack model dtype if necessary
     if original_dtype == torch.float16:
-        attack_model.half()
+        attacker.model.half()
 
     # Detach and convert adversarial example to original image dtype for subsequent inference
     return im_adv.detach().to(im.dtype)

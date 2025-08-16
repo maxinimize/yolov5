@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=yolov5_train
 #SBATCH --account=def-rsolisob
-#SBATCH --time=0-12:00
+#SBATCH --time=0-17:00
 #SBATCH --cpus-per-task=24
-#SBATCH --mem=256G
+#SBATCH --mem=128G
 #SBATCH --gres=gpu:h100:1
 #SBATCH --output=logs/%x-%j.out  
 # SBATCH --qos=devel

@@ -227,42 +227,6 @@ def train(hyp, opt, device, callbacks):
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
     amp = check_amp(model)  # check AMP
 
-    # Attacker model
-    attack_model = setup_attack_model(
-        attack_weights=opt.attack_weights,
-        main_model=model,
-        device=device,
-        nc=nc,
-        training=True
-    )
-
-    # # DEBUG: Print model types for comparison
-    # print("=== MODEL COMPARISON DEBUG ===")
-    # print(f"Main model type: {type(model)}")
-    # print(f"Attack model type: {type(attack_model)}")
-    # with torch.no_grad():
-    #     dummy_input = torch.randn(1, 3, 640, 640).to(device)
-        
-    #     main_output = model(dummy_input)
-    #     attack_output = attack_model(dummy_input)
-        
-    #     print(f"Main model output type: {type(main_output)}")
-    #     print(f"Attack model output type: {type(attack_output)}")
-        
-    #     if isinstance(main_output, (list, tuple)):
-    #         print(f"Main model outputs: {len(main_output)} items")
-    #         for i, out in enumerate(main_output):
-    #             print(f"  main_output[{i}].shape = {out.shape}")
-        
-    #     if isinstance(attack_output, (list, tuple)):
-    #         print(f"Attack model outputs: {len(attack_output)} items")
-    #         for i, out in enumerate(attack_output):
-    #             if hasattr(out, 'shape'):
-    #                 print(f"  attack_output[{i}].shape = {out.shape}")
-    #             else:
-    #                 print(f"  attack_output[{i}] type = {type(out)}")
-    # print("=== END DEBUG ===")
-
     # Freeze
     freeze = [f"model.{x}." for x in (freeze if len(freeze) > 1 else range(freeze[0]))]  # layers to freeze
     for k, v in model.named_parameters():
@@ -275,6 +239,15 @@ def train(hyp, opt, device, callbacks):
     # Image size
     gs = max(int(model.stride.max()), 32)  # grid size (max stride)
     imgsz = check_img_size(opt.imgsz, gs, floor=gs * 2)  # verify imgsz is gs-multiple
+
+    # Attacker model
+    attack_model = setup_attack_model(
+        attack_weights=opt.attack_weights,
+        device=device,
+        nc=nc,
+        training=True,
+        imgsz=imgsz
+    )
 
     # Batch size
     if RANK == -1 and batch_size == -1:  # single-GPU only, estimate best batch size
@@ -364,6 +337,12 @@ def train(hyp, opt, device, callbacks):
         if not resume:
             if not opt.noautoanchor:
                 check_anchors(dataset, model=model, thr=hyp["anchor_t"], imgsz=imgsz)  # run AutoAnchor
+                
+                # copy anchor for attack model
+                main_head = de_parallel(model).model[-1]
+                attack_head = de_parallel(attack_model).model[-1]
+                attack_head.anchors = main_head.anchors.clone()
+
             model.half().float()  # pre-reduce anchor precision
 
         callbacks.run("on_pretrain_routine_end", labels, names)
@@ -392,7 +371,7 @@ def train(hyp, opt, device, callbacks):
     maps = np.zeros(nc)  # mAP per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
-    scaler = torch.cuda.amp.GradScaler(enabled=amp)
+    scaler = torch.amp.GradScaler(device="cuda", enabled=amp)
     stopper, stop = EarlyStopping(patience=opt.patience), False
     compute_loss = ComputeLoss(model)  # init loss class
     callbacks.run("on_train_start")
@@ -404,7 +383,7 @@ def train(hyp, opt, device, callbacks):
     )
 
     # Adversarial training setup
-    # attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
+    attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         callbacks.run("on_train_epoch_start")
@@ -461,14 +440,14 @@ def train(hyp, opt, device, callbacks):
                 # Adversarial training
                 # disable AMP and get adversarial image in float32
                 with torch.amp.autocast(device_type='cuda', enabled=False):
-                    attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
+                    # attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
                     imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
                 # # re-enable AMP
                 if amp:
                     imgs_adv = imgs_adv.half()
 
-                # imgs_adv = attacker.forward(imgs, targets) # get adversarial image
+                # imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
                 pred_adv = model(imgs_adv)
                 loss_adv, loss_items_adv = compute_loss(pred_adv, targets.to(device))
@@ -523,7 +502,7 @@ def train(hyp, opt, device, callbacks):
                     batch_size=batch_size // WORLD_SIZE * 2,
                     imgsz=imgsz,
                     half=amp,
-                    model=model,
+                    model=ema.ema,
                     single_cls=single_cls,
                     dataloader=val_loader,
                     save_dir=save_dir,
@@ -631,6 +610,7 @@ def parse_opt(known=False):
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", type=str, default=ROOT / "yolov5s.pt", help="initial weights path")
+    parser.add_argument("--attack-weights", type=str, default=ROOT / "yolov5s.pt", help="weights path for attacker")
     parser.add_argument("--cfg", type=str, default="", help="model.yaml path")
     parser.add_argument("--data", type=str, default=ROOT / "data/coco128.yaml", help="dataset.yaml path")
     parser.add_argument("--hyp", type=str, default=ROOT / "data/hyps/hyp.scratch-low.yaml", help="hyperparameters path")
@@ -668,7 +648,6 @@ def parse_opt(known=False):
     parser.add_argument("--save-period", type=int, default=-1, help="Save checkpoint every x epochs (disabled if < 1)")
     parser.add_argument("--seed", type=int, default=0, help="Global training seed")
     parser.add_argument("--local_rank", type=int, default=-1, help="Automatic DDP Multi-GPU argument, do not modify")
-    parser.add_argument("--attack-weights", type=str, default="", help="attack model weights path for adversarial training")
 
     # Logger arguments
     parser.add_argument("--entity", default=None, help="Entity")
@@ -990,6 +969,7 @@ def run(**kwargs):
 
     Args:
         weights (str, optional): Path to initial weights. Defaults to ROOT / 'yolov5s.pt'.
+        attack_weights (str, optional): Path to attack model weights for adversarial training. Defaults to ROOT / 'yolov5s.pt'.
         cfg (str, optional): Path to model YAML configuration. Defaults to an empty string.
         data (str, optional): Path to dataset YAML configuration. Defaults to ROOT / 'data/coco128.yaml'.
         hyp (str, optional): Path to hyperparameters YAML configuration. Defaults to ROOT / 'data/hyps/hyp.scratch-low.yaml'.
@@ -1026,8 +1006,7 @@ def run(**kwargs):
         save_period (int, optional): Frequency in epochs to save checkpoints. Disabled if < 1. Defaults to -1.
         seed (int, optional): Global training random seed. Defaults to 0.
         local_rank (int, optional): Automatic DDP Multi-GPU argument. Do not modify. Defaults to -1.
-        attack_weights (str, optional): Path to attack model weights for adversarial training. Defaults to empty string.
-    
+
     Returns:
         None: The function initiates YOLOv5 training or hyperparameter evolution based on the provided options.
 

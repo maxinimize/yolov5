@@ -8,8 +8,17 @@ from copy import deepcopy
 class PGD(Attacker):
     def __init__(self, model, config=None, target=None, epsilon=0.2, lr = 0.01, epoch = 10):
         # deepcopy the model to avoid affecting the training model
-        model_for_attack = deepcopy(model).eval().to(next(model.parameters()).device)
-        super(PGD, self).__init__(model_for_attack, config, epsilon)
+        # model_for_attack = deepcopy(model).eval().to(next(model.parameters()).device)
+        super(PGD, self).__init__(model, config, epsilon)
+
+        self.model.train()
+        for p in self.model.parameters():
+            p.requires_grad_(False)
+        for m in self.model.modules(): # Freeze statistics / disable randomness
+            if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.SyncBatchNorm, torch.nn.Dropout)):
+                m.eval()
+                m.train(False)
+
         self.target = target
         self.epsilon = epsilon # total update limit
         self.lr = lr # amount of update in each step
@@ -24,33 +33,16 @@ class PGD(Attacker):
         :param target : Target label 
         :return adversarial image
         """
-        
-        # # DEBUG: Print shapes and types
-        # print(f"DEBUG PGD: x.shape = {x.shape}")
-        # print(f"DEBUG PGD: y.shape = {y.shape}")
-        # print(f"DEBUG PGD: self.model type = {type(self.model)}")
-
         with torch.enable_grad():
-            self.model.train()
+            # self.model.train()
             x_adv = x.clone().detach()
             for _ in range(self.epoch):
                 self.model.zero_grad()
-                x_adv.requires_grad = True
+                # x_adv.requires_grad = True
+                x_adv.requires_grad_(True)
                 logits = self.model(x_adv) #f(T((x))
 
-                # # DEBUG: Print logits type and shape
-                # print(f"DEBUG PGD step {step}: logits type = {type(logits)}")
-                # if isinstance(logits, (list, tuple)):
-                #     print(f"DEBUG PGD step {step}: logits has {len(logits)} outputs")
-                #     for idx, output in enumerate(logits):
-                #         print(f"DEBUG PGD step {step}: logits[{idx}].shape = {output.shape}")
-                # else:
-                #     print(f"DEBUG PGD step {step}: logits.shape = {logits.shape}")
-                # print(f"DEBUG PGD step {step}: About to call compute_loss")
-
                 loss, loss_components = self.compute_loss(logits, y.to(self.device))
-
-                # print(f"DEBUG PGD step {step}: loss = {loss}")
 
                 loss.backward()   
                                    
@@ -62,9 +54,5 @@ class PGD(Attacker):
                 x_adv = x + torch.clamp(x_adv - x, min=-self.epsilon, max=self.epsilon)
                 x_adv = x_adv.detach()
                 x_adv = torch.clamp(x_adv, 0, 1)
-                self.model.zero_grad()
-
-                # if step == 0:
-                #     print("DEBUG PGD: First step completed successfully")
-            # self.model.eval()
+                # self.model.zero_grad()
             return x_adv
