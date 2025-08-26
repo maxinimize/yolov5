@@ -225,6 +225,7 @@ def train(hyp, opt, device, callbacks):
         LOGGER.info(f"Transferred {len(csd)}/{len(model.state_dict())} items from {weights}")  # report
     else:
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
+    disable_all_inplace(model)
     amp = check_amp(model)  # check AMP
 
     # Freeze
@@ -248,6 +249,7 @@ def train(hyp, opt, device, callbacks):
         training=True,
         imgsz=imgsz
     )
+    disable_all_inplace(attack_model)
 
     # Batch size
     if RANK == -1 and batch_size == -1:  # single-GPU only, estimate best batch size
@@ -382,8 +384,13 @@ def train(hyp, opt, device, callbacks):
         f"Starting training for {epochs} epochs..."
     )
 
+    # attack_head = de_parallel(attack_model).model[-1]
+    # main_head   = de_parallel(model).model[-1]
+    # attack_head.anchors = main_head.anchors.detach().clone()
+
     # Adversarial training setup
     attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
+    torch.autograd.set_detect_anomaly(True)
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         callbacks.run("on_train_epoch_start")
@@ -434,23 +441,36 @@ def train(hyp, opt, device, callbacks):
             # Forward
             with torch.amp.autocast(device_type='cuda', enabled=amp):
 
-                pred = model(imgs)  # forward
-                loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
-                
+                # pred = model(imgs)  # forward
+                # loss, loss_items = compute_loss([p.clone() for p in pred], targets.clone().to(device))  # loss scaled by batch_size
+
                 # Adversarial training
                 # disable AMP and get adversarial image in float32
                 with torch.amp.autocast(device_type='cuda', enabled=False):
                     # attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
                     imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
-                # # re-enable AMP
-                if amp:
-                    imgs_adv = imgs_adv.half()
+                # re-enable AMP
+                # if amp:
+                #     imgs_adv = imgs_adv.half()
 
                 # imgs_adv = attacker.forward(imgs.float(), targets) # get adversarial image
 
-                pred_adv = model(imgs_adv)
-                loss_adv, loss_items_adv = compute_loss(pred_adv, targets.to(device))
+                if epoch == start_epoch and i == 0 and RANK in {-1,0}:
+                    LOGGER.info(f"dbg: imgs ptr={imgs.data_ptr()}, imgs_adv ptr={imgs_adv.data_ptr()}")
+
+                # Concatenate clean and adversarial images for one forward
+                imgs_adv = imgs_adv.to(imgs.dtype)
+                imgs_cat = torch.cat([imgs, imgs_adv], dim=0)         # [2B, C, H, W]
+                pred_cat = model(imgs_cat)                             # YOLOv5: list of 3 tensors
+                B = imgs.shape[0]
+                pred_clean = [p[:B]  for p in pred_cat]
+                pred_adv   = [p[B:]  for p in pred_cat]
+                loss, loss_items = compute_loss([p.clone() for p in pred_clean], targets.clone().to(device))
+                loss_adv, loss_items_adv = compute_loss([p.clone() for p in pred_adv], targets.clone().to(device))
+
+                # pred_adv = model(imgs_adv)
+                # loss_adv, loss_items_adv = compute_loss([p.clone() for p in pred_adv], targets.clone().to(device))
 
                 loss = loss + loss_adv
                 loss_items = loss_items + loss_items_adv
@@ -461,7 +481,12 @@ def train(hyp, opt, device, callbacks):
                     loss *= 4.0
 
             # Backward
-            scaler.scale(loss).backward()
+            # scaler.scale(loss).backward()
+            try:
+                scaler.scale(loss).backward()
+            except Exception as e:
+                print(f"[DBG][rank={RANK} ni={ni} epoch={epoch} i={i}] backward failed: {e}", flush=True)
+                raise
 
             # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
             if ni - last_opt_step >= accumulate:
@@ -565,7 +590,7 @@ def train(hyp, opt, device, callbacks):
                         data_dict,
                         batch_size=batch_size // WORLD_SIZE * 2,
                         imgsz=imgsz,
-                        model=attempt_load(f, device).half(),
+                        model=attempt_load(f, device, fuse=False).half(),
                         iou_thres=0.65 if is_coco else 0.60,  # best pycocotools at iou 0.65
                         single_cls=single_cls,
                         dataloader=val_loader,
@@ -962,6 +987,19 @@ def generate_individual(input_ranges, individual_length):
         individual.append(random.uniform(lower_bound, upper_bound))
     return individual
 
+def disable_all_inplace(module: nn.Module):
+    """
+    Disable inplace operations for all submodules in the module.
+    """
+    for m in module.modules():
+        if hasattr(m, "inplace"):
+            try: m.inplace = False
+            except: pass
+        if hasattr(m, "act") and hasattr(m.act, "inplace"):
+            try: m.act.inplace = False
+            except: pass
+        if m.__class__.__name__ == "Detect" and hasattr(m, "inplace"):
+            m.inplace = False
 
 def run(**kwargs):
     """

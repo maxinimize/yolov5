@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=yolov5_train
 #SBATCH --account=def-rsolisob
-#SBATCH --time=0-17:00
+#SBATCH --time=0-12:00
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=128G
 #SBATCH --gres=gpu:h100:1
@@ -34,10 +34,10 @@ export NUMEXPR_NUM_THREADS=1
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
 
-# train the YOLOv5 model
-# workers correspond to cpu cores used, default is 8 but now its explicit. More means training goes faster.
+train the YOLOv5 model
+workers correspond to cpu cores used, default is 8 but now its explicit. More means training goes faster.
 python train_adv.py \
-  --img 640 --batch 24 --epochs 50 \
+  --img 640 --batch-size 24 --epochs 20 \
   --data coco.yaml \
   --weights yolov5x.pt \
   --attack-weights yolov5x.pt \

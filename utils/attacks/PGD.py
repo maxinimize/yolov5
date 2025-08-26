@@ -42,9 +42,9 @@ class PGD(Attacker):
                 x_adv.requires_grad_(True)
                 logits = self.model(x_adv) #f(T((x))
 
-                loss, loss_components = self.compute_loss(logits, y.to(self.device))
-
-                loss.backward()   
+                loss, _ = self.compute_loss([p.clone() for p in logits], y.to(self.device))
+ 
+                torch.autograd.backward(loss, inputs=[x_adv])  
                                    
                 grad = x_adv.grad.detach()
                 grad = grad.sign()
