@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=yolov5_train_ddp
 #SBATCH --account=def-rsolisob
-#SBATCH --time=0-12:00
+#SBATCH --time=0-24:00
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=128G
 #SBATCH --gres=gpu:h100:4
@@ -78,8 +78,8 @@ torchrun --standalone --nnodes=1 --nproc-per-node=${NPROC_PER_NODE} \
     --batch-size ${GLOBAL_BATCH} \
     --epochs 5 \
     --data coco.yaml \
-    --weights yolov5x.pt \
-    --attack-weights yolov5x.pt \
+    --weights yolov5l.pt \
+    --attack-weights yolov5l.pt \
     --cache ram \
     --workers ${NUM_WORKERS} \
     --patience 500
