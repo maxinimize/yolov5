@@ -96,7 +96,9 @@ from utils.torch_utils import (
     torch_distributed_zero_first,
 )
 from utils.attack_utils import setup_attack_model
-from utils.attacks.PGD import PGD
+# from utils.attacks.PGD import PGD
+# from utils.attacks.art_pgd import ARTPGD as PGD
+from utils.attacks.art_fgsm import ARTFGSM as FGSM
 
 LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))  # https://pytorch.org/docs/stable/elastic/run.html
 RANK = int(os.getenv("RANK", -1))
@@ -389,7 +391,8 @@ def train(hyp, opt, device, callbacks):
     # attack_head.anchors = main_head.anchors.detach().clone()
 
     # Adversarial training setup
-    attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
+    # attacker = PGD(model=attack_model, epsilon=0.05, epoch=20, lr=0.005)
+    attacker = FGSM(model=attack_model, epsilon=0.05)
     torch.autograd.set_detect_anomaly(True)
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------

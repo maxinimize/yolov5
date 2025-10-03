@@ -11,8 +11,19 @@
 path: ../datasets/coco # dataset root dir
 # train: train2017.txt # train images (relative to 'path') 118287 images
 train: train2017_sub50k.txt # train images (relative to 'path') 118287 images
-val: val2017_sub1k.txt # val images (relative to 'path') 5000 images (shuf -n 500 val2017.txt > val2017_sub5h.txt)
+# val: val2017.txt
+val: val2017_sub5h.txt # val images (relative to 'path') 5000 images (shuf -n 500 val2017.txt > val2017_sub5h.txt)
+# val: test_trainleft_plus_val2017.txt 
 test: test-dev2017.txt # 20288 of 40670 images, submit to https://competitions.codalab.org/competitions/20794
+
+# 1. train2017.txt - train2017_sub50k.txt
+# grep -Fv -f train2017_sub50k.txt train2017.txt > train2017_remaining.txt
+
+# 2. 
+# cat train2017_remaining.txt val2017.txt | sort -u > test_trainleft_plus_val2017.txt
+
+# 3. Verify splits
+# wc -l train2017.txt train2017_sub50k.txt train2017_remaining.txt val2017.txt test_trainleft_plus_val2017.txt | sed 's/ \+/\t/g'
 
 # Classes
 names:

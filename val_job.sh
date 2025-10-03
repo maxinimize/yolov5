@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=yolov5_val
 #SBATCH --account=def-rsolisob
-#SBATCH --time=0-1:00        
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
-#SBATCH --gres=gpu:1 
+#SBATCH --time=0-12:00        
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=64G
+#SBATCH --gres=gpu:1
 #SBATCH --output=logs/%x-%j.out  
 
 # Load necessary modules SBATCH --qos=devel
@@ -20,8 +20,11 @@ source yolov5_env/bin/activate
 # set OpenCV path for cv2
 export PYTHONPATH=/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/CUDA/gcc12/cuda12.2/opencv/4.11.0/lib/python3.11/site-packages:$PYTHONPATH
 
+OMP_NUM_THREADS=1 
+OPENBLAS_NUM_THREADS=1 
+MKL_NUM_THREADS=1 
+
 # train the YOLOv5 model
-# python val_adv.py --weights runs/train/exp2/weights/best.pt --attack-weights yolov5x.pt --data coco.yaml --img 640 --half
-# python val_adv.py --weights yolov5x.pt --attack-weights yolov5x.pt --data coco.yaml --img 640 --half
+python val_adv.py --weights runs/train/exp16/weights/best.pt --attack-weights yolov5l.pt --data coco.yaml --img 640 --half
+# python val_adv.py --weights yolov5l.pt --attack-weights yolov5l.pt --data coco.yaml --img 640 --half
 # python val.py --weights runs/train/exp2/weights/best.pt --data coco.yaml --img 640 --half
-python val.py --weights yolov5x.pt --data coco.yaml --img 640 --half

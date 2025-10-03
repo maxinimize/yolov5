@@ -60,8 +60,9 @@ from utils.metrics import ConfusionMatrix, ap_per_class, box_iou
 from utils.plots import output_to_target, plot_images, plot_val_study
 from utils.torch_utils import select_device, smart_inference_mode, de_parallel
 from utils.attack_utils import setup_attack_model
-from utils.attacks.PGD import PGD
-
+# from utils.attacks.PGD import PGD
+# from utils.attacks.art_pgd import ARTPGD as PGD
+from utils.attacks.art_fgsm import ARTFGSM as FGSM
 
 def save_one_txt(predn, save_conf, shape, file):
     """
@@ -371,7 +372,8 @@ def run(
     jdict, stats, ap, ap_class = [], [], [], []
     callbacks.run("on_val_start")
     pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # progress bar
-    attacker = PGD(attack_model, epsilon=0.05, epoch=20, lr=0.005)
+    # attacker = PGD(attack_model, epsilon=0.05, epoch=20, lr=0.005)
+    attacker = FGSM(attack_model, epsilon=0.05)
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
         callbacks.run("on_val_batch_start")
         with torch.no_grad():
