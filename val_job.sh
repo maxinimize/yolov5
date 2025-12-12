@@ -20,11 +20,13 @@ source yolov5_env/bin/activate
 # set OpenCV path for cv2
 export PYTHONPATH=/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/CUDA/gcc12/cuda12.2/opencv/4.11.0/lib/python3.11/site-packages:$PYTHONPATH
 
-OMP_NUM_THREADS=1 
-OPENBLAS_NUM_THREADS=1 
-MKL_NUM_THREADS=1 
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export BLIS_NUM_THREADS=1
 
 # train the YOLOv5 model
-python val_adv.py --weights runs/train/exp16/weights/best.pt --attack-weights yolov5l.pt --data coco.yaml --img 640 --half
-# python val_adv.py --weights yolov5l.pt --attack-weights yolov5l.pt --data coco.yaml --img 640 --half
-# python val.py --weights runs/train/exp2/weights/best.pt --data coco.yaml --img 640 --half
+python val_adv.py --weights runs/train/exp25/weights/best.pt --attack-weights yolov5l.pt --data coco_val.yaml --img 640 --half
+# python val_adv.py --weights yolov5l.pt --attack-weights yolov5l.pt --data coco_val.yaml --img 640 --half
+# python val.py --weights runs/train/exp25/weights/best.pt --data coco_val.yaml --img 640 --half
+# python val.py --weights yolov5l.pt --data coco_val.yaml --img 640 --half
